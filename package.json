@@ -1,0 +1,20 @@
+{
+  "name": "trailhead",
+  "version": "0.1.0",
+  "description": "Non-custodial, on-chain AI copy-trading agent for Avalanche (StrategyRegistry + FollowerVault).",
+  "license": "MIT",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:fuji": "hardhat run scripts/deploy.js --network fuji",
+    "deploy:avalanche": "hardhat run scripts/deploy.js --network avalanche"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2",
+    "dotenv": "^16.4.5"
+  }
+}
