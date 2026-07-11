@@ -50,8 +50,25 @@ async function main() {
     console.log("Execution agent set to:", process.env.EXECUTION_AGENT);
   }
 
+  // Whitelist the tokens the vault may swap into (comma-separated addresses).
+  const whitelist = (process.env.WHITELIST_TOKENS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+  for (const token of whitelist) {
+    const tx = await vault.setTokenWhitelisted(token, true);
+    await tx.wait();
+    console.log("Whitelisted token:", token);
+  }
+
   console.log("\nDeployment complete.");
-  console.log(JSON.stringify({ registry: registryAddr, vault: vaultAddr, baseAsset, router }, null, 2));
+  console.log(
+    JSON.stringify(
+      { registry: registryAddr, vault: vaultAddr, baseAsset, router, whitelisted: whitelist },
+      null,
+      2
+    )
+  );
 }
 
 main().catch((error) => {
