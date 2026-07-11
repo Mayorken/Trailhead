@@ -4,7 +4,10 @@ import { registryAbi, vaultAbi, routerAbi, erc20Abi } from "./abis.js";
 
 declare global {
   interface Window {
-    ethereum?: ethers.Eip1193Provider & { on?: (e: string, cb: (...a: unknown[]) => void) => void };
+    ethereum?: ethers.Eip1193Provider & {
+      on?: (e: string, cb: (...a: unknown[]) => void) => void;
+      removeListener?: (e: string, cb: (...a: unknown[]) => void) => void;
+    };
   }
 }
 
@@ -148,25 +151,28 @@ export interface Wallet {
   provider: ethers.BrowserProvider;
   signer: ethers.Signer;
   address: string;
+  chainId: number;
 }
 
 export async function connectWallet(): Promise<Wallet> {
   if (!window.ethereum) throw new Error("No injected wallet found. Install MetaMask or Core.");
   const provider = new ethers.BrowserProvider(window.ethereum);
   await provider.send("eth_requestAccounts", []);
-  await ensureChain();
+  await switchToConfiguredChain();
   const signer = await provider.getSigner();
   const address = await signer.getAddress();
-  return { provider, signer, address };
+  const net = await provider.getNetwork();
+  return { provider, signer, address, chainId: Number(net.chainId) };
 }
 
-async function ensureChain(): Promise<void> {
+/** Ask the wallet to switch to the configured chain. Safe to call; ignores user rejection. */
+export async function switchToConfiguredChain(): Promise<void> {
   if (!window.ethereum) return;
   const hexId = "0x" + config.chainId.toString(16);
   try {
     await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hexId }] });
   } catch {
-    // Chain not added — leave it to the user; reads still work via the RPC provider.
+    // Chain not added or user declined — reads still work via the RPC provider.
   }
 }
 

@@ -3,7 +3,18 @@ require("dotenv").config();
 
 const { PRIVATE_KEY, FUJI_RPC_URL, AVALANCHE_RPC_URL, SNOWTRACE_API_KEY } = process.env;
 
-const accounts = PRIVATE_KEY ? [PRIVATE_KEY] : [];
+// Accept a PRIVATE_KEY only if it's a valid 32-byte hex key; otherwise disable live-network
+// accounts rather than crashing the whole config (so `hardhat node` / tests still run).
+function normalizePrivateKey(k) {
+  if (!k || k.trim() === "") return null;
+  const key = k.trim().startsWith("0x") ? k.trim() : "0x" + k.trim();
+  if (/^0x[0-9a-fA-F]{64}$/.test(key)) return key;
+  console.warn("Warning: PRIVATE_KEY is not a valid 32-byte hex key — live-network accounts disabled.");
+  return null;
+}
+
+const pk = normalizePrivateKey(PRIVATE_KEY);
+const accounts = pk ? [pk] : [];
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {

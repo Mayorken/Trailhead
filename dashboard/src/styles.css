@@ -75,6 +75,7 @@ input {
 }
 
 .error { background: rgba(240,97,109,0.12); border: 1px solid var(--neg); color: #ffb4bb; padding: 10px 14px; border-radius: 8px; margin: 16px 0; }
+button.inline { margin-left: 12px; padding: 4px 10px; font-size: 13px; }
 .status { background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 10px 14px; border-radius: 8px; margin: 16px 0; }
 .empty { color: var(--muted); }
 

@@ -7,6 +7,7 @@ import {
   loadStrategies,
   loadPosition,
   connectWallet,
+  switchToConfiguredChain,
   writeVault,
   erc20With,
   type BaseMeta,
@@ -60,6 +61,34 @@ export default function App() {
       setError((e as Error).message);
     }
   };
+
+  const disconnect = () => {
+    setWallet(null);
+    setStatus("");
+    setError("");
+  };
+
+  // React to wallet account/chain changes. Injected wallets can't be force-disconnected,
+  // so "disconnect" clears app state; if the user disconnects in the wallet, accountsChanged
+  // fires with an empty list and we do the same.
+  useEffect(() => {
+    const eth = window.ethereum;
+    if (!wallet || !eth?.on) return;
+    const onAccounts = (accts: unknown) => {
+      const list = accts as string[];
+      if (!list || list.length === 0) disconnect();
+      else void connect();
+    };
+    const onChain = () => void connect();
+    eth.on("accountsChanged", onAccounts);
+    eth.on("chainChanged", onChain);
+    return () => {
+      eth.removeListener?.("accountsChanged", onAccounts);
+      eth.removeListener?.("chainChanged", onChain);
+    };
+  }, [wallet]);
+
+  const wrongNetwork = wallet !== null && wallet.chainId !== config.chainId;
 
   const runTx = useCallback(
     async (label: string, build: (signer: ethers.Signer) => Promise<ethers.ContractTransactionResponse>) => {
@@ -118,7 +147,10 @@ export default function App() {
         </div>
         <div className="wallet-box">
           {wallet ? (
-            <span className="pill">{shortAddr(wallet.address)}</span>
+            <>
+              <span className="pill" title={wallet.address}>{shortAddr(wallet.address)}</span>
+              <button onClick={disconnect}>Disconnect</button>
+            </>
           ) : (
             <button className="primary" onClick={connect}>Connect wallet</button>
           )}
@@ -126,6 +158,12 @@ export default function App() {
         </div>
       </header>
 
+      {wrongNetwork && (
+        <div className="error">
+          Wrong network — your wallet is on chain {wallet?.chainId}, this app needs {config.chainId}.
+          <button className="inline" onClick={() => void switchToConfiguredChain()}>Switch network</button>
+        </div>
+      )}
       {error && <div className="error">{error}</div>}
       {status && <div className="status">{status}</div>}
 
