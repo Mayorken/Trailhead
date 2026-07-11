@@ -70,11 +70,11 @@ export function VaultPanel({ meta, position, canWrite, busy, onDeposit, onWithdr
       </div>
 
       {position.holdings.length > 0 && (
-        <>
+        <div className="enter">
           <h2>Positions</h2>
           <div className="card rows">
-            {position.holdings.map((h) => (
-              <div className="row" key={h.token}>
+            {position.holdings.map((h, i) => (
+              <div className="row" key={h.token} style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>
                 <span className="avatar" style={{ background: avatarColor(h.symbol) }}>
                   {h.symbol.slice(0, 3).toUpperCase()}
                 </span>
@@ -95,7 +95,7 @@ export function VaultPanel({ meta, position, canWrite, busy, onDeposit, onWithdr
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
     </>
   );

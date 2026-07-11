@@ -48,12 +48,15 @@ export function Strategies({ strategies, canWrite, busy, onFollow, onUnfollow }:
 
   return (
     <div className="card rows">
-      {strategies.map((s) => {
+      {strategies.map((s, i) => {
         const key = s.id.toString();
         const following = !!s.follow?.active;
         return (
           <Fragment key={key}>
-            <div className={`row ${s.active ? "" : "inactive"}`}>
+            <div
+              className={`row ${s.active ? "" : "inactive"}`}
+              style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
+            >
               <span className="avatar" style={{ background: avatarColor(s.strategyWallet) }}>
                 {key}
               </span>
