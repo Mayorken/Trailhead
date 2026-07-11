@@ -1,0 +1,117 @@
+:root {
+  --bg: #0e0f13;
+  --panel: #171922;
+  --panel-2: #1e212d;
+  --border: #2a2e3d;
+  --text: #e7e9ee;
+  --muted: #8b90a0;
+  --accent: #e84142; /* Avalanche red */
+  --pos: #35c46b;
+  --neg: #f0616d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
+.tagline { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+
+.wallet-box { display: flex; align-items: center; gap: 12px; }
+.net { color: var(--muted); font-size: 12px; }
+
+h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 28px 0 12px; }
+
+button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 14px;
+  width: 120px;
+}
+
+.pill {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.error { background: rgba(240,97,109,0.12); border: 1px solid var(--neg); color: #ffb4bb; padding: 10px 14px; border-radius: 8px; margin: 16px 0; }
+.status { background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 10px 14px; border-radius: 8px; margin: 16px 0; }
+.empty { color: var(--muted); }
+
+/* Vault */
+.vault { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+.vault-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.stat-label { display: block; color: var(--muted); font-size: 12px; }
+.stat-value { display: block; font-size: 20px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.addr-line { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
+
+.deposit-form { display: flex; gap: 10px; margin-top: 16px; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+td { padding: 10px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+tr.inactive { opacity: 0.5; }
+.holdings { margin-top: 16px; }
+
+.pos { color: var(--pos); }
+.neg { color: var(--neg); }
+
+.badge { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 6px; margin-left: 6px; vertical-align: middle; }
+.badge.verified { background: rgba(53,196,107,0.15); color: var(--pos); }
+.badge.active { background: rgba(232,65,66,0.12); color: #ff9a9b; }
+.badge.off { background: var(--panel-2); color: var(--muted); }
+.badge.following { background: rgba(232,65,66,0.9); color: #fff; }
+
+.actions .hint, .hint { color: var(--muted); font-size: 12px; }
+
+.follow-form { display: flex; align-items: flex-end; gap: 14px; padding: 6px 4px; flex-wrap: wrap; }
+.follow-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.form-row td { background: var(--panel-2); }
+
+footer { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+
+@media (max-width: 640px) {
+  .vault-summary { grid-template-columns: repeat(2, 1fr); }
+}
