@@ -10,6 +10,12 @@ interface Props {
   onUnfollow: (id: bigint) => void;
 }
 
+function avatarColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 360;
+  return `hsl(${h} 55% 50%)`;
+}
+
 function FollowForm({ id, busy, onFollow }: { id: bigint; busy: boolean; onFollow: Props["onFollow"] }) {
   const [slipPct, setSlipPct] = useState("3");
   const [posPct, setPosPct] = useState("25");
@@ -24,12 +30,13 @@ function FollowForm({ id, busy, onFollow }: { id: bigint; busy: boolean; onFollo
         <input value={posPct} onChange={(e) => setPosPct(e.target.value)} inputMode="decimal" />
       </label>
       <button
+        className="primary"
         disabled={busy}
         onClick={() => onFollow(id, Math.round(Number(slipPct) * 100), Math.round(Number(posPct) * 100))}
       >
-        Follow
+        Confirm follow
       </button>
-      <span className="hint">caps: 5% slippage / 50% position</span>
+      <span className="hint">caps: 5% / 50%</span>
     </div>
   );
 }
@@ -37,59 +44,47 @@ function FollowForm({ id, busy, onFollow }: { id: bigint; busy: boolean; onFollo
 export function Strategies({ strategies, canWrite, busy, onFollow, onUnfollow }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
 
-  if (strategies.length === 0) return <p className="empty">No strategies registered yet.</p>;
+  if (strategies.length === 0) return <div className="card"><p className="empty">No strategies registered yet.</p></div>;
 
   return (
-    <table className="strategies">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Strategy wallet</th>
-          <th>Profit share</th>
-          <th>Status</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {strategies.map((s) => {
-          const key = s.id.toString();
-          const following = !!s.follow?.active;
-          return (
-            <Fragment key={key}>
-              <tr className={s.active ? "" : "inactive"}>
-                <td>{key}</td>
-                <td title={s.strategyWallet}>
+    <div className="card rows">
+      {strategies.map((s) => {
+        const key = s.id.toString();
+        const following = !!s.follow?.active;
+        return (
+          <Fragment key={key}>
+            <div className={`row ${s.active ? "" : "inactive"}`}>
+              <span className="avatar" style={{ background: avatarColor(s.strategyWallet) }}>
+                {key}
+              </span>
+              <div className="row-main">
+                <div className="row-title">
                   {shortAddr(s.strategyWallet)}
-                  {s.verified && <span className="badge verified" title="Admin-reviewed">✓ verified</span>}
-                </td>
-                <td>{bpsToPct(s.profitShareBps)}</td>
-                <td>
-                  {s.active ? <span className="badge active">active</span> : <span className="badge off">inactive</span>}
+                  {s.verified && <span className="badge verified">✓ verified</span>}
                   {following && <span className="badge following">following</span>}
-                </td>
-                <td className="actions">
-                  {!canWrite ? (
-                    <span className="hint">connect wallet</span>
-                  ) : following ? (
-                    <button disabled={busy} onClick={() => onUnfollow(s.id)}>Unfollow</button>
-                  ) : s.active ? (
-                    <button disabled={busy} onClick={() => setOpenId(openId === key ? null : key)}>
-                      {openId === key ? "Cancel" : "Follow"}
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-              {canWrite && openId === key && !following && (
-                <tr className="form-row">
-                  <td colSpan={5}>
-                    <FollowForm id={s.id} busy={busy} onFollow={onFollow} />
-                  </td>
-                </tr>
-              )}
-            </Fragment>
-          );
-        })}
-      </tbody>
-    </table>
+                </div>
+                <div className="row-sub">
+                  {bpsToPct(s.profitShareBps)} profit share · {s.active ? "active" : "inactive"}
+                </div>
+              </div>
+              <div className="row-right">
+                {!canWrite ? (
+                  <span className="hint">connect wallet</span>
+                ) : following ? (
+                  <button disabled={busy} onClick={() => onUnfollow(s.id)}>Unfollow</button>
+                ) : s.active ? (
+                  <button disabled={busy} onClick={() => setOpenId(openId === key ? null : key)}>
+                    {openId === key ? "Cancel" : "Follow"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {canWrite && openId === key && !following && (
+              <FollowForm id={s.id} busy={busy} onFollow={onFollow} />
+            )}
+          </Fragment>
+        );
+      })}
+    </div>
   );
 }

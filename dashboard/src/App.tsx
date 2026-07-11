@@ -17,6 +17,7 @@ import {
 } from "./chain.js";
 import { Strategies } from "./components/Strategies.js";
 import { VaultPanel } from "./components/VaultPanel.js";
+import { Logo } from "./components/Logo.js";
 import { shortAddr } from "./format.js";
 
 export default function App() {
@@ -141,10 +142,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <div>
-          <h1>Trailhead</h1>
-          <p className="tagline">On-chain copy-trading · Avalanche</p>
-        </div>
+        <Logo />
         <div className="wallet-box">
           {wallet ? (
             <>
@@ -160,46 +158,42 @@ export default function App() {
 
       {wrongNetwork && (
         <div className="error">
-          Wrong network — your wallet is on chain {wallet?.chainId}, this app needs {config.chainId}.
-          <button className="inline" onClick={() => void switchToConfiguredChain()}>Switch network</button>
+          Wrong network — wallet is on chain {wallet?.chainId}, this app needs {config.chainId}.
+          <button className="inline" onClick={() => void switchToConfiguredChain()}>Switch</button>
         </div>
       )}
       {error && <div className="error">{error}</div>}
       {status && <div className="status">{status}</div>}
 
-      <section>
-        <h2>Your vault</h2>
-        {meta && position && activeAddress ? (
-          <VaultPanel
-            meta={meta}
-            position={position}
-            address={activeAddress}
-            canWrite={canWrite}
-            busy={busy}
-            onDeposit={onDeposit}
-            onWithdraw={onWithdraw}
-          />
-        ) : (
+      {meta && position && activeAddress ? (
+        <VaultPanel
+          meta={meta}
+          position={position}
+          canWrite={canWrite}
+          busy={busy}
+          onDeposit={onDeposit}
+          onWithdraw={onWithdraw}
+        />
+      ) : (
+        <div className="card">
           <p className="empty">
             {activeAddress ? "Loading position…" : "Connect a wallet to see your position."}
           </p>
-        )}
-      </section>
+        </div>
+      )}
 
-      <section>
-        <h2>Strategies</h2>
-        <Strategies
-          strategies={strategies}
-          canWrite={canWrite}
-          busy={busy}
-          onFollow={onFollow}
-          onUnfollow={onUnfollow}
-        />
-      </section>
+      <h2>Strategies</h2>
+      <Strategies
+        strategies={strategies}
+        canWrite={canWrite}
+        busy={busy}
+        onFollow={onFollow}
+        onUnfollow={onUnfollow}
+      />
 
       <footer>
-        <span>Registry {shortAddr(config.registryAddress)}</span>
-        <span>Vault {shortAddr(config.vaultAddress)}</span>
+        <span className="mono">Registry {shortAddr(config.registryAddress)}</span>
+        <span className="mono">Vault {shortAddr(config.vaultAddress)}</span>
         <span>Non-custodial · funds never leave your control</span>
       </footer>
     </div>
