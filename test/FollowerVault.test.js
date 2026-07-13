@@ -6,9 +6,11 @@ const { ethers } = require("hardhat");
 const e = (n) => ethers.parseUnits(n.toString(), 18);
 const PROFIT_SHARE_BPS = 1000n; // 10%
 
+const ONE_USD_8DEC = 100_000_000n; // $1.00 at 8 decimals (Chainlink convention)
+
 describe("FollowerVault", function () {
   let owner, agent, user, creator, stratWallet, other;
-  let usdc, token, router, registry, vault;
+  let usdc, token, router, registry, vault, priceFeed;
 
   async function deadline() {
     const block = await ethers.provider.getBlock("latest");
@@ -52,6 +54,13 @@ describe("FollowerVault", function () {
 
     await vault.connect(owner).setExecutionAgent(agent.address);
     await vault.connect(owner).setTokenWhitelisted(await token.getAddress(), true);
+
+    // Price feed: $1/token at 8 decimals. With 18/18-decimal tokens and the router's default
+    // 1:1 rate, this reproduces exactly 1:1 through the oracle formula too, so it doesn't
+    // perturb any existing floor comparison below.
+    const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
+    priceFeed = await MockPriceFeed.deploy(8, ONE_USD_8DEC);
+    await vault.connect(owner).setPriceFeed(await token.getAddress(), await priceFeed.getAddress());
 
     // Strategy 0: creator earns 10% profit share.
     await registry.connect(creator).registerStrategy(stratWallet.address, PROFIT_SHARE_BPS);
@@ -216,6 +225,7 @@ describe("FollowerVault", function () {
 
       // Close 100 token @ 2:1 => 200 base out. gain 100, fee 10% = 10.
       await router.setRate(2, 1);
+      await priceFeed.setPrice(2n * ONE_USD_8DEC); // oracle tracks the real 2x move too
       const tokenAddr = await token.getAddress();
       const usdcAddr = await usdc.getAddress();
       const closeP = await mkParams({
@@ -242,6 +252,7 @@ describe("FollowerVault", function () {
 
       // Close @ 1:2 => 50 base out, below the 100 basis: no fee.
       await router.setRate(1, 2);
+      await priceFeed.setPrice(ONE_USD_8DEC / 2n); // oracle tracks the real 2x drop too
       const tokenAddr = await token.getAddress();
       const usdcAddr = await usdc.getAddress();
       const closeP = await mkParams({
@@ -264,6 +275,7 @@ describe("FollowerVault", function () {
       // Sell half (50 token) @ 2:1 => 100 base out. Basis portion = 100 * 50/100 = 50.
       // gain 50, fee 10% = 5.
       await router.setRate(2, 1);
+      await priceFeed.setPrice(2n * ONE_USD_8DEC); // oracle tracks the real 2x move too
       const tokenAddr = await token.getAddress();
       const usdcAddr = await usdc.getAddress();
       const closeP = await mkParams({
@@ -280,6 +292,126 @@ describe("FollowerVault", function () {
       expect(await vault.costBasis(user.address, tokenAddr)).to.equal(e(50));
       expect(await usdc.balanceOf(creator.address)).to.equal(e(5));
       expect(await vault.balance(user.address)).to.equal(e(900) + e(95)); // 100 out - 5 fee
+    });
+  });
+
+  describe("oracle sanity-check", function () {
+    beforeEach(async function () {
+      await vault.connect(user).followStrategy(0, 300, 5000);
+    });
+
+    it("rejects opening with no price feed configured for the token", async function () {
+      const TKN2 = await ethers.getContractFactory("MockERC20");
+      const token2 = await TKN2.deploy("Mock Token 2", "TKN2", 18);
+      await vault.connect(owner).setTokenWhitelisted(await token2.getAddress(), true);
+      // Deliberately no setPriceFeed call for token2.
+
+      const p = await mkParams({
+        tokenOut: await token2.getAddress(),
+        path: [await usdc.getAddress(), await token2.getAddress()],
+      });
+      await expect(vault.connect(agent).executeMirroredTrade(p)).to.be.revertedWith(
+        "oracle price unavailable"
+      );
+    });
+
+    it("rejects opening when the price feed is stale", async function () {
+      const now = (await ethers.provider.getBlock("latest")).timestamp;
+      await priceFeed.setUpdatedAt(now - 25 * 3600); // 25h old, default max staleness is 24h
+
+      const p = await mkParams();
+      await expect(vault.connect(agent).executeMirroredTrade(p)).to.be.revertedWith(
+        "oracle price unavailable"
+      );
+    });
+
+    it("rejects opening when the feed reports a non-positive price", async function () {
+      await priceFeed.setPrice(0);
+      const p = await mkParams();
+      await expect(vault.connect(agent).executeMirroredTrade(p)).to.be.revertedWith(
+        "oracle price unavailable"
+      );
+    });
+
+    it("blocks a manipulated pool quote even when the agent's minAmountOut matches it (oracle floor dominates)", async function () {
+      // Simulate a manipulated/bad pool: it now delivers only 50 token for 100 USDC (a 2x
+      // worse rate), while the true market price hasn't moved -- the oracle still correctly
+      // reports $1/token. Without the oracle check, an agent trusting only the pool's own
+      // quote would accept this; the oracle floor must catch it.
+      await router.setRate(1, 2); // pool quote: 50 token for 100 USDC in
+      // oracle still $1/token (unchanged from beforeEach) -> oracleOut = 100, oracleFloor
+      // at 5% tolerance = 95. routerFloor (manipulated pool, 3% tolerance) = 50*0.97 = 48.5.
+      // The agent submits minAmountOut matching the manipulated pool's own honest floor --
+      // exactly what a naive router-only check would accept.
+      const p = await mkParams({ minAmountOut: e(48.5) });
+      await expect(vault.connect(agent).executeMirroredTrade(p)).to.be.revertedWith(
+        "minAmountOut below slippage floor"
+      );
+    });
+
+    it("does NOT block closing when the price feed is stale (fund-stranding fix)", async function () {
+      // Open normally first.
+      await vault.connect(agent).executeMirroredTrade(await mkParams());
+
+      // Now the feed goes stale -- this must never prevent an exit.
+      const now = (await ethers.provider.getBlock("latest")).timestamp;
+      await priceFeed.setUpdatedAt(now - 25 * 3600);
+
+      const tokenAddr = await token.getAddress();
+      const usdcAddr = await usdc.getAddress();
+      const closeP = await mkParams({
+        tokenIn: tokenAddr,
+        tokenOut: usdcAddr,
+        amountIn: e(100),
+        minAmountOut: e(97), // router-only floor at 1:1, 3% tolerance
+        path: [tokenAddr, usdcAddr],
+      });
+
+      await expect(vault.connect(agent).executeMirroredTrade(closeP)).to.not.be.reverted;
+      expect(await vault.heldToken(user.address, tokenAddr)).to.equal(0);
+    });
+
+    it("does NOT block closing when no price feed was ever configured (fund-stranding fix)", async function () {
+      await vault.connect(agent).executeMirroredTrade(await mkParams());
+      await vault.connect(owner).setPriceFeed(await token.getAddress(), ethers.ZeroAddress);
+
+      const tokenAddr = await token.getAddress();
+      const usdcAddr = await usdc.getAddress();
+      const closeP = await mkParams({
+        tokenIn: tokenAddr,
+        tokenOut: usdcAddr,
+        amountIn: e(100),
+        minAmountOut: e(97),
+        path: [tokenAddr, usdcAddr],
+      });
+
+      await expect(vault.connect(agent).executeMirroredTrade(closeP)).to.not.be.reverted;
+    });
+  });
+
+  describe("getNAV", function () {
+    it("sums withdrawable balance plus oracle-priced open positions", async function () {
+      await vault.connect(user).followStrategy(0, 300, 5000);
+      await vault.connect(agent).executeMirroredTrade(await mkParams()); // 100 USDC -> 100 token @ $1
+
+      // balance after open: 900. Held: 100 token @ $1 = 100 USDC value. NAV = 1000.
+      const nav = await vault.getNAV(user.address, [await token.getAddress()]);
+      expect(nav).to.equal(e(1000));
+    });
+
+    it("skips a token with no configured feed instead of reverting", async function () {
+      await vault.connect(user).followStrategy(0, 300, 5000);
+      await vault.connect(agent).executeMirroredTrade(await mkParams());
+      await vault.connect(owner).setPriceFeed(await token.getAddress(), ethers.ZeroAddress);
+
+      // No feed -> the held position is skipped; NAV falls back to cash balance only.
+      const nav = await vault.getNAV(user.address, [await token.getAddress()]);
+      expect(nav).to.equal(e(900));
+    });
+
+    it("returns just the cash balance when no tokens are passed", async function () {
+      const nav = await vault.getNAV(user.address, []);
+      expect(nav).to.equal(e(1000));
     });
   });
 

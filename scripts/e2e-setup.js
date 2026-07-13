@@ -33,8 +33,12 @@ async function main() {
     await router.getAddress()
   );
 
+  const MockPriceFeed = await hre.ethers.getContractFactory("MockPriceFeed");
+  const priceFeed = await MockPriceFeed.deploy(8, 100_000_000); // $1.00 at 8 decimals
+
   await (await vault.setExecutionAgent(agent.address)).wait();
   await (await vault.setTokenWhitelisted(await token.getAddress(), true)).wait();
+  await (await vault.setPriceFeed(await token.getAddress(), await priceFeed.getAddress())).wait();
 
   // Strategy 0: 10% profit share, mirrored wallet = strategyWallet.
   await (await registry.connect(strategyWallet).registerStrategy(strategyWallet.address, 1000)).wait();

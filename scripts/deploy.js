@@ -6,6 +6,10 @@ const hre = require("hardhat");
 //   BASE_ASSET       - ERC20 base asset (e.g. USDC on the target chain)
 //   DEX_ROUTER       - Trader Joe router address
 //   EXECUTION_AGENT  - hot-wallet address allowed to call executeMirroredTrade (optional)
+//   WHITELIST_TOKENS - comma-separated tokens the vault may swap into
+//   PRICE_FEEDS      - comma-separated token:feed pairs (Chainlink AggregatorV3Interface).
+//                      A token can't actually be opened into until it has both a whitelist
+//                      entry AND a price feed -- opens hard-require a fresh oracle price.
 //
 // On the in-process `hardhat` network these are not set, so the script deploys mocks
 // (MockERC20 base asset + MockDexRouter) so a dry run works out of the box.
@@ -61,10 +65,35 @@ async function main() {
     console.log("Whitelisted token:", token);
   }
 
+  // Wire price feeds (comma-separated "token:feed" pairs). Without one, a whitelisted
+  // token can still be closed out of but never newly opened into (see FollowerVault's
+  // oracle sanity-check).
+  const priceFeedPairs = (process.env.PRICE_FEEDS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+  const priceFeeds = {};
+  for (const pair of priceFeedPairs) {
+    const [token, feed] = pair.split(":").map((s) => s.trim());
+    if (!token || !feed) throw new Error(`Malformed PRICE_FEEDS entry: "${pair}" (expected token:feed)`);
+    const tx = await vault.setPriceFeed(token, feed);
+    await tx.wait();
+    console.log("Price feed set:", token, "->", feed);
+    priceFeeds[token] = feed;
+  }
+
+  const unfedWhitelisted = whitelist.filter((t) => !priceFeeds[t]);
+  if (unfedWhitelisted.length > 0) {
+    console.log(
+      "\nWarning: whitelisted without a price feed (closable but not openable until setPriceFeed is called):",
+      unfedWhitelisted
+    );
+  }
+
   console.log("\nDeployment complete.");
   console.log(
     JSON.stringify(
-      { registry: registryAddr, vault: vaultAddr, baseAsset, router, whitelisted: whitelist },
+      { registry: registryAddr, vault: vaultAddr, baseAsset, router, whitelisted: whitelist, priceFeeds },
       null,
       2
     )

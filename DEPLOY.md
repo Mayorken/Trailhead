@@ -13,6 +13,7 @@ swaps work with no liquidity-seeding on your part.
 | USDC (6 decimals, base asset) | `0xB6076C93701D6a07266c31066B298AeC6dd65c2d` |
 | USDT | `0xAb231A5744C8E6c45481754928cCfFFFD4aa0732` |
 | WAVAX (whitelisted swap target) | `0xd00ae08403B9bbb9124bB305C09058E32C39A48c` |
+| Chainlink AVAX/USD price feed | `0x5498BB86BC934c8D34FDA08E81D444153d0D06aD` |
 
 ## What you provide (I can't handle keys or funds)
 
@@ -47,8 +48,11 @@ AVAX_IN=1 npx hardhat run scripts/fuji-get-usdc.js --network fuji
 npm run deploy:fuji
 ```
 This deploys `StrategyRegistry` + `FollowerVault` pointed at the real router, sets the execution
-agent, and whitelists WAVAX (`WHITELIST_TOKENS` in `.env`). Note the printed `registry` and
-`vault` addresses.
+agent, whitelists WAVAX (`WHITELIST_TOKENS` in `.env`), and wires its Chainlink price feed
+(`PRICE_FEEDS` in `.env`). A token whitelisted without a matching `PRICE_FEEDS` entry can be
+closed out of but never newly opened into — the vault hard-requires a fresh oracle price to
+open new exposure (see `FollowerVault.sol`'s oracle sanity-check). Note the printed `registry`
+and `vault` addresses.
 
 ### 4. Point the agent and dashboard at the deployment
 ```bash
@@ -80,6 +84,23 @@ npx hardhat verify --network fuji <vault> <owner> <usdc> <registry> <router>
 3. From the strategy wallet, make a real `USDC -> WAVAX` swap on the Joe V1 router.
 4. Run the agent (`DRY_RUN=false`) — it detects the swap and mirrors it into the follower vault.
 5. Watch the position and P&L update on the dashboard.
+
+## Redeploying after a contract change
+
+`FollowerVault` is immutable (no proxy/upgrade pattern), so any change to it — like adding the
+oracle sanity-check and `getNAV` — needs a **fresh deployment**, not an upgrade:
+
+- The new vault gets a **new address**. Re-run step 4 (`agent/.env`, `dashboard/.env`, and the
+  Vercel production env vars all need the new `VAULT_ADDRESS`/`VITE_VAULT_ADDRESS` and a new
+  `VAULT_DEPLOY_BLOCK`/`VITE_VAULT_DEPLOY_BLOCK`).
+- `StrategyRegistry` is unaffected — the new vault can reference the same registry, so existing
+  strategy ids stay valid and don't need re-registering.
+- **Any position open on the old vault does not migrate automatically.** There's no
+  `withdrawToken`-style escape hatch — the only way a `heldToken` position converts back to
+  withdrawable `balance` is an agent-executed close on *that specific vault*. If you're
+  decommissioning the old vault's agent, close out any open positions on it first (or accept
+  them as stranded, fine for a low-value testnet pilot — the follower's cash `balance` is
+  always withdrawable regardless, only the open token position needs the old agent to exit).
 
 ## What I do vs. what you do
 
