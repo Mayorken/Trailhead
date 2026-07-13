@@ -97,6 +97,29 @@ export async function loadStrategies(provider: ethers.Provider, user?: string): 
   return out;
 }
 
+// Public RPC providers cap eth_getLogs to a small block range (Fuji's endpoint allows 2048).
+// A long-lived chain's full history can vastly exceed that in one call, and the gap between
+// a fixed starting block and "latest" only grows over time — so this chunks the query into
+// windows under the cap and concatenates results, rather than relying on the range staying
+// small. Safely under 2048 to leave headroom for provider-side rounding.
+const MAX_LOG_RANGE = 2000;
+
+async function queryFilterChunked(
+  contract: ethers.Contract,
+  filter: ethers.DeferredTopicFilter,
+  fromBlock: number,
+  provider: ethers.Provider,
+): Promise<ethers.EventLog[]> {
+  const latest = await provider.getBlockNumber();
+  const events: ethers.EventLog[] = [];
+  for (let start = fromBlock; start <= latest; start += MAX_LOG_RANGE + 1) {
+    const end = Math.min(start + MAX_LOG_RANGE, latest);
+    const chunk = await contract.queryFilter(filter, start, end);
+    events.push(...(chunk as ethers.EventLog[]));
+  }
+  return events;
+}
+
 export async function loadPosition(
   provider: ethers.Provider,
   meta: BaseMeta,
@@ -106,7 +129,12 @@ export async function loadPosition(
   const baseBalance: bigint = await vault.balance(user);
 
   // Discover which tokens this user has ever opened a position in.
-  const opened = await vault.queryFilter(vault.filters.PositionOpened(user), 0, "latest");
+  const opened = await queryFilterChunked(
+    vault,
+    vault.filters.PositionOpened(user),
+    config.vaultDeployBlock,
+    provider,
+  );
   const tokens = new Set<string>();
   for (const ev of opened) {
     const log = ev as ethers.EventLog;

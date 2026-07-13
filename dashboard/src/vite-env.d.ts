@@ -5,6 +5,7 @@ interface ImportMetaEnv {
   readonly VITE_CHAIN_ID?: string;
   readonly VITE_REGISTRY_ADDRESS?: string;
   readonly VITE_VAULT_ADDRESS?: string;
+  readonly VITE_VAULT_DEPLOY_BLOCK?: string;
   readonly VITE_DEMO_ADDRESS?: string;
 }
 
