@@ -165,14 +165,64 @@ export async function connectWallet(): Promise<Wallet> {
   return { provider, signer, address, chainId: Number(net.chainId) };
 }
 
-/** Ask the wallet to switch to the configured chain. Safe to call; ignores user rejection. */
+interface AddChainParams {
+  chainId: string;
+  chainName: string;
+  nativeCurrency: { name: string; symbol: string; decimals: number };
+  rpcUrls: string[];
+  blockExplorerUrls: string[];
+}
+
+// Params for the two networks this project targets. wallet_switchEthereumChain fails with
+// code 4902 ("unrecognized chain") if the wallet has never seen the chain before — we only
+// know how to fall back to wallet_addEthereumChain for chains we can describe here.
+function addChainParams(chainId: number, rpcUrl: string): AddChainParams | null {
+  const hexId = "0x" + chainId.toString(16);
+  const nativeCurrency = { name: "Avalanche", symbol: "AVAX", decimals: 18 };
+  if (chainId === 43113) {
+    return {
+      chainId: hexId,
+      chainName: "Avalanche Fuji Testnet",
+      nativeCurrency,
+      rpcUrls: [rpcUrl],
+      blockExplorerUrls: ["https://testnet.snowtrace.io"],
+    };
+  }
+  if (chainId === 43114) {
+    return {
+      chainId: hexId,
+      chainName: "Avalanche C-Chain",
+      nativeCurrency,
+      rpcUrls: [rpcUrl],
+      blockExplorerUrls: ["https://snowtrace.io"],
+    };
+  }
+  return null;
+}
+
+/**
+ * Ask the wallet to switch to the configured chain. If the wallet has never seen this chain
+ * (error 4902), fall back to wallet_addEthereumChain — adding a chain also switches to it, so
+ * no separate switch call is needed after. Safe to call; swallows user rejection so reads can
+ * still proceed via the RPC provider even if the wallet stays on the wrong network.
+ */
 export async function switchToConfiguredChain(): Promise<void> {
   if (!window.ethereum) return;
   const hexId = "0x" + config.chainId.toString(16);
   try {
     await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hexId }] });
+    return;
+  } catch (err) {
+    const code = (err as { code?: number } | null)?.code;
+    if (code !== 4902) return; // user rejected, or an error we can't recover from — give up quietly
+  }
+
+  const params = addChainParams(config.chainId, config.rpcUrl);
+  if (!params) return;
+  try {
+    await window.ethereum.request({ method: "wallet_addEthereumChain", params: [params] });
   } catch {
-    // Chain not added or user declined — reads still work via the RPC provider.
+    // User rejected the add — the wrongNetwork banner will still surface this.
   }
 }
 
