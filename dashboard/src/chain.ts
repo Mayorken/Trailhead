@@ -47,6 +47,10 @@ export interface Holding {
 export interface Position {
   baseBalance: bigint;
   holdings: Holding[];
+  /** Authoritative NAV read from the vault's own getNAV (oracle-priced), when available.
+   *  Falls back to null if the deployed vault predates getNAV or the call fails — callers
+   *  should fall back to baseBalance + sum(holdings.currentValueBase) in that case. */
+  onChainNAV: bigint | null;
 }
 
 export const readProvider = (): ethers.JsonRpcProvider =>
@@ -170,7 +174,17 @@ export async function loadPosition(
     });
   }
 
-  return { baseBalance, holdings };
+  // Prefer the vault's own getNAV (oracle-priced, same math the contract enforces) over the
+  // client-side router-quote sum above for the headline total. Older deployments (pre-oracle)
+  // won't have this function — fall back to the client computation rather than fail the page.
+  let onChainNAV: bigint | null = null;
+  try {
+    onChainNAV = await vault.getNAV(user, [...tokens]);
+  } catch {
+    onChainNAV = null;
+  }
+
+  return { baseBalance, holdings, onChainNAV };
 }
 
 // ---- wallet (write path) ----

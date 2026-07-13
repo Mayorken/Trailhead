@@ -42,7 +42,11 @@ export function VaultPanel({ meta, position, canWrite, busy, onDeposit, onWithdr
   const [amount, setAmount] = useState("");
 
   const holdingsValue = position.holdings.reduce((a, h) => a + h.currentValueBase, 0n);
-  const totalValue = position.baseBalance + holdingsValue;
+  // Prefer the vault's own oracle-priced getNAV over the client-side router-quote sum --
+  // it's the same math the contract itself enforces, not a parallel off-chain guess. Only
+  // falls back (older vault deployments predating getNAV, or a transient RPC failure).
+  const usingOnChainNAV = position.onChainNAV !== null;
+  const totalValue = usingOnChainNAV ? position.onChainNAV! : position.baseBalance + holdingsValue;
   const totalPnl = position.holdings.reduce((a, h) => a + h.pnlBase, 0n);
   const pnlSign = totalPnl < 0n ? "neg" : "pos";
 
@@ -52,7 +56,14 @@ export function VaultPanel({ meta, position, canWrite, busy, onDeposit, onWithdr
         <div className="hero">
           <Contour />
           <div className="hero-top">
-            <span className="live-dot" title="Read live from the vault contract" />
+            <span
+              className="live-dot"
+              title={
+                usingOnChainNAV
+                  ? "Oracle-priced NAV, read directly from the vault contract"
+                  : "Read live from the vault contract"
+              }
+            />
             <span className="hero-label">Total portfolio</span>
           </div>
           <div className="hero-value">

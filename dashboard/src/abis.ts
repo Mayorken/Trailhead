@@ -16,6 +16,7 @@ export const vaultAbi = [
   "function withdraw(uint256 amount)",
   "function followStrategy(uint256 strategyId, uint256 maxSlippageBps, uint256 maxPositionSizeBps)",
   "function unfollowStrategy(uint256 strategyId)",
+  "function getNAV(address follower, address[] tokens) view returns (uint256)",
   "event PositionOpened(address indexed follower, uint256 indexed strategyId, address indexed token, uint256 baseSpent, uint256 tokenReceived)",
 ] as const;
 
