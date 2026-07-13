@@ -1,6 +1,28 @@
 import { ethers } from "ethers";
 import type { Chain } from "./chain.js";
 
+// Public RPC providers cap eth_getLogs to a small block range (Fuji's endpoint allows 2048).
+// The gap between the last-scanned block and the current head grows with every tick, so a
+// single unchunked query eventually exceeds the cap on any long-lived chain — this splits
+// the range into windows under the cap and concatenates results. Safely under 2048 to leave
+// headroom for provider-side rounding.
+const MAX_LOG_RANGE = 2000;
+
+async function queryFilterChunked(
+  contract: ethers.Contract,
+  filter: ethers.DeferredTopicFilter,
+  fromBlock: number,
+  toBlock: number,
+): Promise<ethers.EventLog[]> {
+  const events: ethers.EventLog[] = [];
+  for (let start = fromBlock; start <= toBlock; start += MAX_LOG_RANGE + 1) {
+    const end = Math.min(start + MAX_LOG_RANGE, toBlock);
+    const chunk = await contract.queryFilter(filter, start, end);
+    events.push(...(chunk as ethers.EventLog[]));
+  }
+  return events;
+}
+
 /**
  * Maintains the set of followers per strategy by replaying the vault's Followed /
  * Unfollowed events. `follows` is a nested mapping on-chain and not enumerable, so the
@@ -42,16 +64,8 @@ export class FollowerIndex {
     if (toBlock <= this.lastScannedBlock) return;
     const from = this.lastScannedBlock + 1;
 
-    const followed = await this.chain.vault.queryFilter(
-      this.chain.vault.filters.Followed(),
-      from,
-      toBlock,
-    );
-    const unfollowed = await this.chain.vault.queryFilter(
-      this.chain.vault.filters.Unfollowed(),
-      from,
-      toBlock,
-    );
+    const followed = await queryFilterChunked(this.chain.vault, this.chain.vault.filters.Followed(), from, toBlock);
+    const unfollowed = await queryFilterChunked(this.chain.vault, this.chain.vault.filters.Unfollowed(), from, toBlock);
 
     const events = [...followed, ...unfollowed].sort(
       (a, b) => a.blockNumber - b.blockNumber || a.index - b.index,
