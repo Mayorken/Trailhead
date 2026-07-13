@@ -2,7 +2,7 @@
 
 Non-custodial, on-chain AI copy-trading agent for Avalanche. Users deposit into a vault,
 follow a vetted trading strategy, and have trades mirrored automatically — every trade, fee,
-and performance number verifiable on-chain. Built for the Avalanche Team1 Mini-Grants program.
+and performance number verifiable on-chain. 
 
 > **Status:** contracts compile and pass a full unit-test suite on the Hardhat network.
 > **Not audited. Do not deploy to mainnet with real funds.**
