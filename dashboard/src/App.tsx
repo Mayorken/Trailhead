@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ethers } from "ethers";
+import { motion, AnimatePresence } from "framer-motion";
 import { config, isConfigured } from "./config.js";
 import {
   readProvider,
@@ -19,6 +20,15 @@ import { Strategies } from "./components/Strategies.js";
 import { VaultPanel } from "./components/VaultPanel.js";
 import { Logo } from "./components/Logo.js";
 import { shortAddr } from "./format.js";
+
+const bannerVariants = {
+  hidden: { opacity: 0, y: -6 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.2, ease: [0.23, 1, 0.32, 1] } },
+  exit: { opacity: 0, y: -6, transition: { duration: 0.15 } },
+};
+
+const tap = { scale: 0.97 };
+const tapTransition = { duration: 0.12, ease: [0.23, 1, 0.32, 1] as const };
 
 export default function App() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -144,26 +154,69 @@ export default function App() {
       <header>
         <Logo />
         <div className="wallet-box">
-          {wallet ? (
-            <>
-              <span className="pill" title={wallet.address}>{shortAddr(wallet.address)}</span>
-              <button onClick={disconnect}>Disconnect</button>
-            </>
-          ) : (
-            <button className="primary" onClick={connect}>Connect wallet</button>
-          )}
+          <AnimatePresence mode="wait" initial={false}>
+            {wallet ? (
+              <motion.div
+                key="connected"
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
+              >
+                <span className="pill" title={wallet.address}>{shortAddr(wallet.address)}</span>
+                <motion.button whileTap={tap} transition={tapTransition} onClick={disconnect}>
+                  Disconnect
+                </motion.button>
+              </motion.div>
+            ) : (
+              <motion.button
+                key="disconnected"
+                className="primary"
+                onClick={connect}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                whileTap={tap}
+                transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
+              >
+                Connect wallet
+              </motion.button>
+            )}
+          </AnimatePresence>
           <span className="net">chain {config.chainId}</span>
         </div>
       </header>
 
-      {wrongNetwork && (
-        <div className="error">
-          Wrong network — wallet is on chain {wallet?.chainId}, this app needs {config.chainId}.
-          <button className="inline" onClick={() => void switchToConfiguredChain()}>Switch</button>
-        </div>
-      )}
-      {error && <div className="error">{error}</div>}
-      {status && <div className="status">{status}</div>}
+      <AnimatePresence>
+        {wrongNetwork && (
+          <motion.div className="error" variants={bannerVariants} initial="hidden" animate="visible" exit="exit">
+            Wrong network — wallet is on chain {wallet?.chainId}, this app needs {config.chainId}.
+            <motion.button
+              className="inline"
+              whileTap={tap}
+              transition={tapTransition}
+              onClick={() => void switchToConfiguredChain()}
+            >
+              Switch
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {error && (
+          <motion.div className="error" variants={bannerVariants} initial="hidden" animate="visible" exit="exit">
+            {error}
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {status && (
+          <motion.div className="status" variants={bannerVariants} initial="hidden" animate="visible" exit="exit">
+            {status}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {meta && position && activeAddress ? (
         <VaultPanel

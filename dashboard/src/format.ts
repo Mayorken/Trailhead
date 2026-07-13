@@ -21,3 +21,13 @@ export function fmtSigned(amount: bigint, decimals: number, maxFrac = 4): string
   const abs = amount < 0n ? -amount : amount;
   return `${sign}${fmt(abs, decimals, maxFrac)}`;
 }
+
+/** Convert a token amount to a plain float for cosmetic use only (e.g. tweening a display number). */
+export function toFloat(amount: bigint, decimals: number): number {
+  return Number(ethers.formatUnits(amount, decimals));
+}
+
+/** Format a plain float with fixed decimals and thousands separators. */
+export function fmtFloat(n: number, maxFrac = 2): string {
+  return n.toLocaleString(undefined, { minimumFractionDigits: maxFrac, maximumFractionDigits: maxFrac });
+}

@@ -1,4 +1,5 @@
-import { Fragment, useState } from "react";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import type { Strategy } from "../chain.js";
 import { shortAddr, bpsToPct } from "../format.js";
 
@@ -16,11 +17,36 @@ function avatarColor(seed: string): string {
   return `hsl(${h} 55% 50%)`;
 }
 
+const listVariants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { staggerChildren: 0.04, delayChildren: 0.02 } },
+};
+
+const rowVariants = {
+  hidden: { opacity: 0, y: 6 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.26, ease: [0.23, 1, 0.32, 1] } },
+};
+
+const formVariants = {
+  hidden: { opacity: 0, y: -6, scale: 0.98 },
+  visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.18, ease: [0.23, 1, 0.32, 1] } },
+  exit: { opacity: 0, y: -6, scale: 0.98, transition: { duration: 0.13, ease: [0.23, 1, 0.32, 1] } },
+};
+
+const tap = { scale: 0.97 };
+const tapTransition = { duration: 0.12, ease: [0.23, 1, 0.32, 1] as const };
+
 function FollowForm({ id, busy, onFollow }: { id: bigint; busy: boolean; onFollow: Props["onFollow"] }) {
   const [slipPct, setSlipPct] = useState("3");
   const [posPct, setPosPct] = useState("25");
   return (
-    <div className="follow-form">
+    <motion.div
+      className="follow-form"
+      variants={formVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+    >
       <label>
         Max slippage %
         <input value={slipPct} onChange={(e) => setSlipPct(e.target.value)} inputMode="decimal" />
@@ -29,15 +55,17 @@ function FollowForm({ id, busy, onFollow }: { id: bigint; busy: boolean; onFollo
         Max position %
         <input value={posPct} onChange={(e) => setPosPct(e.target.value)} inputMode="decimal" />
       </label>
-      <button
+      <motion.button
         className="primary"
         disabled={busy}
+        whileTap={tap}
+        transition={tapTransition}
         onClick={() => onFollow(id, Math.round(Number(slipPct) * 100), Math.round(Number(posPct) * 100))}
       >
         Confirm follow
-      </button>
+      </motion.button>
       <span className="hint">caps: 5% / 50%</span>
-    </div>
+    </motion.div>
   );
 }
 
@@ -47,16 +75,13 @@ export function Strategies({ strategies, canWrite, busy, onFollow, onUnfollow }:
   if (strategies.length === 0) return <div className="card"><p className="empty">No strategies registered yet.</p></div>;
 
   return (
-    <div className="card rows">
-      {strategies.map((s, i) => {
+    <motion.div className="card rows" variants={listVariants} initial="hidden" animate="visible">
+      {strategies.map((s) => {
         const key = s.id.toString();
         const following = !!s.follow?.active;
         return (
-          <Fragment key={key}>
-            <div
-              className={`row ${s.active ? "" : "inactive"}`}
-              style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
-            >
+          <motion.div key={key} className="row-group" variants={rowVariants} layout="position">
+            <div className={`row ${s.active ? "" : "inactive"}`}>
               <span className="avatar" style={{ background: avatarColor(s.strategyWallet) }}>
                 {key}
               </span>
@@ -74,20 +99,29 @@ export function Strategies({ strategies, canWrite, busy, onFollow, onUnfollow }:
                 {!canWrite ? (
                   <span className="hint">connect wallet</span>
                 ) : following ? (
-                  <button disabled={busy} onClick={() => onUnfollow(s.id)}>Unfollow</button>
+                  <motion.button whileTap={tap} transition={tapTransition} disabled={busy} onClick={() => onUnfollow(s.id)}>
+                    Unfollow
+                  </motion.button>
                 ) : s.active ? (
-                  <button disabled={busy} onClick={() => setOpenId(openId === key ? null : key)}>
+                  <motion.button
+                    whileTap={tap}
+                    transition={tapTransition}
+                    disabled={busy}
+                    onClick={() => setOpenId(openId === key ? null : key)}
+                  >
                     {openId === key ? "Cancel" : "Follow"}
-                  </button>
+                  </motion.button>
                 ) : null}
               </div>
             </div>
-            {canWrite && openId === key && !following && (
-              <FollowForm id={s.id} busy={busy} onFollow={onFollow} />
-            )}
-          </Fragment>
+            <AnimatePresence>
+              {canWrite && openId === key && !following && (
+                <FollowForm id={s.id} busy={busy} onFollow={onFollow} />
+              )}
+            </AnimatePresence>
+          </motion.div>
         );
       })}
-    </div>
+    </motion.div>
   );
 }
