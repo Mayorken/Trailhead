@@ -53,6 +53,25 @@ export interface Position {
   onChainNAV: bigint | null;
 }
 
+export interface LeaderboardEntry extends Strategy {
+  pnlBase: bigint;
+  winRate: number;
+  skinBase: bigint;
+  closedCount: number;
+}
+
+export interface ActivityItem {
+  block: number;
+  txHash: string;
+  type: "open" | "close";
+  follower: string;
+  strategyId: bigint;
+  token: string;
+  tokenSymbol: string;
+  baseAmount: bigint;
+  tokenAmount: bigint;
+}
+
 export const readProvider = (): ethers.JsonRpcProvider =>
   new ethers.JsonRpcProvider(config.rpcUrl);
 
@@ -113,8 +132,9 @@ async function queryFilterChunked(
   filter: ethers.DeferredTopicFilter,
   fromBlock: number,
   provider: ethers.Provider,
+  toBlock?: number,
 ): Promise<ethers.EventLog[]> {
-  const latest = await provider.getBlockNumber();
+  const latest = toBlock ?? (await provider.getBlockNumber());
   const events: ethers.EventLog[] = [];
   for (let start = fromBlock; start <= latest; start += MAX_LOG_RANGE + 1) {
     const end = Math.min(start + MAX_LOG_RANGE, latest);
@@ -185,6 +205,128 @@ export async function loadPosition(
   }
 
   return { baseBalance, holdings, onChainNAV };
+}
+
+// ---- leaderboard ----
+
+export async function loadLeaderboard(
+  provider: ethers.Provider,
+  meta: BaseMeta,
+  strategies: Strategy[],
+): Promise<LeaderboardEntry[]> {
+  const { vault } = readContracts(provider);
+  const baseErc20 = new ethers.Contract(meta.baseAsset, erc20Abi, provider);
+  const from = config.vaultDeployBlock;
+
+  const entries = await Promise.all(
+    strategies.map(async (s): Promise<LeaderboardEntry> => {
+      const [opens, closes, skinRaw] = await Promise.all([
+        queryFilterChunked(vault, vault.filters.PositionOpened(null, s.id), from, provider),
+        queryFilterChunked(vault, vault.filters.PositionClosed(null, s.id), from, provider),
+        baseErc20.balanceOf(s.strategyWallet) as Promise<bigint>,
+      ]);
+
+      let totalSpent = 0n;
+      for (const ev of opens) {
+        totalSpent += ev.args[3] as bigint; // baseSpent
+      }
+
+      // Win = contract charged a profitShareFee > 0, meaning it detected a gain on this close.
+      let totalReturned = 0n;
+      let wins = 0;
+      for (const ev of closes) {
+        const baseReceived = ev.args[4] as bigint;
+        const fee = ev.args[5] as bigint;
+        totalReturned += baseReceived - fee;
+        if (fee > 0n) wins++;
+      }
+
+      return {
+        ...s,
+        pnlBase: totalReturned - totalSpent,
+        winRate: closes.length === 0 ? 0 : Math.round((wins / closes.length) * 100),
+        skinBase: skinRaw,
+        closedCount: closes.length,
+      };
+    }),
+  );
+
+  return entries.sort((a, b) => (b.pnlBase > a.pnlBase ? 1 : b.pnlBase < a.pnlBase ? -1 : 0));
+}
+
+// ---- activity feed ----
+
+export async function loadActivity(
+  provider: ethers.Provider,
+  fromBlock: number,
+  toBlock: number,
+  symbolCache: Map<string, string>,
+  meta: BaseMeta,
+): Promise<ActivityItem[]> {
+  const { vault } = readContracts(provider);
+
+  const resolveSymbol = async (token: string): Promise<string> => {
+    const key = token.toLowerCase();
+    if (symbolCache.has(key)) return symbolCache.get(key)!;
+    try {
+      const erc20 = new ethers.Contract(token, erc20Abi, provider);
+      const sym: string = await erc20.symbol();
+      symbolCache.set(key, sym);
+      return sym;
+    } catch {
+      symbolCache.set(key, "???");
+      return "???";
+    }
+  };
+  // Always cache base asset symbol so it's available for closes
+  if (!symbolCache.has(meta.baseAsset.toLowerCase())) {
+    const erc20 = new ethers.Contract(meta.baseAsset, erc20Abi, provider);
+    const sym: string = await erc20.symbol();
+    symbolCache.set(meta.baseAsset.toLowerCase(), sym);
+  }
+
+  const [opens, closes] = await Promise.all([
+    queryFilterChunked(vault, vault.filters.PositionOpened(), fromBlock, provider, toBlock),
+    queryFilterChunked(vault, vault.filters.PositionClosed(), fromBlock, provider, toBlock),
+  ]);
+
+  const items: ActivityItem[] = [];
+
+  for (const ev of opens) {
+    const token = ethers.getAddress(ev.args[2] as string);
+    const sym = await resolveSymbol(token);
+    items.push({
+      block: ev.blockNumber,
+      txHash: ev.transactionHash,
+      type: "open",
+      follower: ethers.getAddress(ev.args[0] as string),
+      strategyId: ev.args[1] as bigint,
+      token,
+      tokenSymbol: sym,
+      baseAmount: ev.args[3] as bigint, // baseSpent
+      tokenAmount: ev.args[4] as bigint, // tokenReceived
+    });
+  }
+
+  for (const ev of closes) {
+    const token = ethers.getAddress(ev.args[2] as string);
+    const sym = await resolveSymbol(token);
+    const baseReceived = ev.args[4] as bigint;
+    const fee = ev.args[5] as bigint;
+    items.push({
+      block: ev.blockNumber,
+      txHash: ev.transactionHash,
+      type: "close",
+      follower: ethers.getAddress(ev.args[0] as string),
+      strategyId: ev.args[1] as bigint,
+      token,
+      tokenSymbol: sym,
+      baseAmount: baseReceived - fee, // net to follower
+      tokenAmount: ev.args[3] as bigint, // tokenSold
+    });
+  }
+
+  return items.sort((a, b) => b.block - a.block);
 }
 
 // ---- wallet (write path) ----

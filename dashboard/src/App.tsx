@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ethers } from "ethers";
 import { motion, AnimatePresence } from "framer-motion";
 import { config, isConfigured } from "./config.js";
@@ -7,16 +7,20 @@ import {
   loadBaseMeta,
   loadStrategies,
   loadPosition,
+  loadLeaderboard,
+  loadActivity,
   connectWallet,
   switchToConfiguredChain,
   writeVault,
   erc20With,
   type BaseMeta,
-  type Strategy,
+  type LeaderboardEntry,
+  type ActivityItem,
   type Position,
   type Wallet,
 } from "./chain.js";
-import { Strategies } from "./components/Strategies.js";
+import { Leaderboard } from "./components/Leaderboard.js";
+import { ActivityFeed } from "./components/ActivityFeed.js";
 import { VaultPanel } from "./components/VaultPanel.js";
 import { Logo } from "./components/Logo.js";
 import { shortAddr } from "./format.js";
@@ -30,14 +34,22 @@ const bannerVariants = {
 const tap = { scale: 0.97 };
 const tapTransition = { duration: 0.12, ease: [0.23, 1, 0.32, 1] as const };
 
+const ACTIVITY_POLL_MS = 6_000;
+const MAX_ACTIVITY_ITEMS = 50;
+const ACTIVITY_LOOKBACK_BLOCKS = 100;
+
 export default function App() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [meta, setMeta] = useState<BaseMeta | null>(null);
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [position, setPosition] = useState<Position | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[] | null>(null);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [busy, setBusy] = useState(false);
+
+  const symbolCacheRef = useRef<Map<string, string>>(new Map());
+  const lastScannedBlockRef = useRef<number | null>(null);
 
   const activeAddress = wallet?.address ?? config.demoAddress;
   const canWrite = !!wallet;
@@ -52,9 +64,14 @@ export default function App() {
       const provider = readProvider();
       const m = meta ?? (await loadBaseMeta(provider));
       if (!meta) setMeta(m);
-      setStrategies(await loadStrategies(provider, activeAddress));
+      const strats = await loadStrategies(provider, activeAddress);
       if (activeAddress) setPosition(await loadPosition(provider, m, activeAddress));
       else setPosition(null);
+
+      // Leaderboard loads async after the position to avoid blocking the hero number.
+      loadLeaderboard(provider, m, strats)
+        .then(setLeaderboard)
+        .catch(() => setLeaderboard([]));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -63,6 +80,41 @@ export default function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Activity feed: incremental poll every 6 s.
+  useEffect(() => {
+    if (!isConfigured()) return;
+
+    const poll = async () => {
+      try {
+        const provider = readProvider();
+        const latest = await provider.getBlockNumber();
+        const from = lastScannedBlockRef.current === null
+          ? Math.max(config.vaultDeployBlock, latest - ACTIVITY_LOOKBACK_BLOCKS)
+          : lastScannedBlockRef.current + 1;
+
+        if (from > latest) return;
+
+        const m = meta ?? (await loadBaseMeta(provider));
+        const items = await loadActivity(provider, from, latest, symbolCacheRef.current, m);
+        lastScannedBlockRef.current = latest;
+
+        if (items.length > 0) {
+          setActivity((prev) => {
+            const merged = [...items, ...prev];
+            return merged.slice(0, MAX_ACTIVITY_ITEMS);
+          });
+        }
+      } catch {
+        // polling failures are silent — feed just doesn't update this tick
+      }
+    };
+
+    void poll();
+    const id = setInterval(() => void poll(), ACTIVITY_POLL_MS);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const connect = async () => {
     setError("");
@@ -236,12 +288,21 @@ export default function App() {
       )}
 
       <h2>Strategies</h2>
-      <Strategies
-        strategies={strategies}
+      <Leaderboard
+        entries={leaderboard}
+        decimals={meta?.decimals ?? 6}
+        symbol={meta?.symbol ?? "USDC"}
         canWrite={canWrite}
         busy={busy}
         onFollow={onFollow}
         onUnfollow={onUnfollow}
+      />
+
+      <h2>Live Activity</h2>
+      <ActivityFeed
+        items={activity}
+        decimals={meta?.decimals ?? 6}
+        symbol={meta?.symbol ?? "USDC"}
       />
 
       <footer>

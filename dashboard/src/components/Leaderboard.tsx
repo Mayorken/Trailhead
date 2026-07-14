@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { Strategy } from "../chain.js";
-import { shortAddr, bpsToPct } from "../format.js";
+import type { LeaderboardEntry } from "../chain.js";
+import { shortAddr, fmt, bpsToPct } from "../format.js";
 
-interface Props {
-  strategies: Strategy[];
+export interface LeaderboardProps {
+  entries: LeaderboardEntry[] | null;
+  decimals: number;
+  symbol: string;
   canWrite: boolean;
   busy: boolean;
   onFollow: (id: bigint, maxSlippageBps: number, maxPositionSizeBps: number) => void;
@@ -17,24 +19,7 @@ function avatarColor(seed: string): string {
   return `hsl(${h} 55% 50%)`;
 }
 
-const listVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.04, delayChildren: 0.02 } },
-};
-
-const rowVariants = {
-  hidden: { opacity: 0, y: 6 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.26, ease: [0.23, 1, 0.32, 1] } },
-};
-
-const formVariants = {
-  hidden: { opacity: 0, y: -6, scale: 0.98 },
-  visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.18, ease: [0.23, 1, 0.32, 1] } },
-  exit: { opacity: 0, y: -6, scale: 0.98, transition: { duration: 0.13, ease: [0.23, 1, 0.32, 1] } },
-};
-
-const tap = { scale: 0.97 };
-const tapTransition = { duration: 0.12, ease: [0.23, 1, 0.32, 1] as const };
+// ---- Safety slider follow form ----
 
 type Preset = "safe" | "moderate" | "aggressive" | "custom";
 
@@ -51,7 +36,22 @@ function detectPreset(slipPct: number, posPct: number): Preset {
   return key ?? "custom";
 }
 
-function FollowForm({ id, busy, onFollow }: { id: bigint; busy: boolean; onFollow: Props["onFollow"] }) {
+const formVariants = {
+  hidden: { opacity: 0, y: -6, scale: 0.98 },
+  visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.18, ease: [0.23, 1, 0.32, 1] } },
+  exit: { opacity: 0, y: -6, scale: 0.98, transition: { duration: 0.13, ease: [0.23, 1, 0.32, 1] } },
+};
+
+const tap = { scale: 0.97 };
+const tapTransition = { duration: 0.12, ease: [0.23, 1, 0.32, 1] as const };
+
+function FollowForm({
+  id, busy, onFollow,
+}: {
+  id: bigint;
+  busy: boolean;
+  onFollow: LeaderboardProps["onFollow"];
+}) {
   const [slipPct, setSlipPct] = useState(PRESETS.moderate.slipPct);
   const [posPct, setPosPct]   = useState(PRESETS.moderate.posPct);
   const preset = detectPreset(slipPct, posPct);
@@ -122,41 +122,92 @@ function FollowForm({ id, busy, onFollow }: { id: bigint; busy: boolean; onFollo
   );
 }
 
-export function Strategies({ strategies, canWrite, busy, onFollow, onUnfollow }: Props) {
+// ---- Leaderboard card list ----
+
+const listVariants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { staggerChildren: 0.05, delayChildren: 0.02 } },
+};
+
+const rowVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.28, ease: [0.23, 1, 0.32, 1] } },
+};
+
+export function Leaderboard({ entries, decimals, symbol, canWrite, busy, onFollow, onUnfollow }: LeaderboardProps) {
   const [openId, setOpenId] = useState<string | null>(null);
 
-  if (strategies.length === 0) return <div className="card"><p className="empty">No strategies registered yet.</p></div>;
+  if (entries === null) {
+    return (
+      <div className="card">
+        <p className="empty">Loading track records…</p>
+      </div>
+    );
+  }
+
+  if (entries.length === 0) {
+    return (
+      <div className="card">
+        <p className="empty">No strategies registered yet.</p>
+      </div>
+    );
+  }
 
   return (
     <motion.div className="card rows" variants={listVariants} initial="hidden" animate="visible">
-      {strategies.map((s) => {
-        const key = s.id.toString();
-        const following = !!s.follow?.active;
+      {entries.map((e) => {
+        const key = e.id.toString();
+        const following = !!e.follow?.active;
+        const pnlPositive = e.pnlBase >= 0n;
+        const hasTrades = e.closedCount > 0;
+
         return (
           <motion.div key={key} className="row-group" variants={rowVariants} layout="position">
-            <div className={`row ${s.active ? "" : "inactive"}`}>
-              <span className="avatar" style={{ background: avatarColor(s.strategyWallet) }}>
+            <div className={`row leaderboard-row ${e.active ? "" : "inactive"}`}>
+              <span className="avatar" style={{ background: avatarColor(e.strategyWallet) }}>
                 {key}
               </span>
+
               <div className="row-main">
                 <div className="row-title">
-                  {shortAddr(s.strategyWallet)}
-                  {s.verified && <span className="badge verified">✓ verified</span>}
+                  {shortAddr(e.strategyWallet)}
+                  {e.verified && <span className="badge verified">✓ Verified</span>}
                   {following && <span className="badge following">following</span>}
                 </div>
-                <div className="row-sub">
-                  {bpsToPct(s.profitShareBps)} profit share · {s.active ? "active" : "inactive"}
+                <div className="row-sub">{bpsToPct(e.profitShareBps)} profit share · {e.active ? "active" : "inactive"}</div>
+
+                <div className="leaderboard-stats">
+                  <div className="stat">
+                    <span className="stat-label">All-time P&amp;L</span>
+                    <span className={`stat-value ${pnlPositive ? "pos" : "neg"}`}>
+                      {pnlPositive ? "+" : "−"}
+                      {fmt(pnlPositive ? e.pnlBase : -e.pnlBase, decimals, 4)} {symbol}
+                    </span>
+                  </div>
+                  <div className="stat">
+                    <span className="stat-label">Win rate</span>
+                    <span className="stat-value">
+                      {hasTrades ? `${e.winRate}%` : "—"}
+                      {hasTrades && <span className="stat-sub"> ({e.closedCount} trade{e.closedCount !== 1 ? "s" : ""})</span>}
+                    </span>
+                  </div>
+                  <div className="stat">
+                    <span className="stat-label">Skin in the game</span>
+                    <span className="stat-value">{fmt(e.skinBase, decimals, 2)} {symbol}</span>
+                  </div>
                 </div>
               </div>
+
               <div className="row-right">
                 {!canWrite ? (
                   <span className="hint">connect wallet</span>
                 ) : following ? (
-                  <motion.button whileTap={tap} transition={tapTransition} disabled={busy} onClick={() => onUnfollow(s.id)}>
+                  <motion.button whileTap={tap} transition={tapTransition} disabled={busy} onClick={() => onUnfollow(e.id)}>
                     Unfollow
                   </motion.button>
-                ) : s.active ? (
+                ) : e.active ? (
                   <motion.button
+                    className={openId === key ? "" : "primary"}
                     whileTap={tap}
                     transition={tapTransition}
                     disabled={busy}
@@ -167,9 +218,17 @@ export function Strategies({ strategies, canWrite, busy, onFollow, onUnfollow }:
                 ) : null}
               </div>
             </div>
+
             <AnimatePresence>
               {canWrite && openId === key && !following && (
-                <FollowForm id={s.id} busy={busy} onFollow={onFollow} />
+                <FollowForm
+                  id={e.id}
+                  busy={busy}
+                  onFollow={(id, slipBps, posBps) => {
+                    setOpenId(null);
+                    onFollow(id, slipBps, posBps);
+                  }}
+                />
               )}
             </AnimatePresence>
           </motion.div>
